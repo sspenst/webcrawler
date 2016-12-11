@@ -46,6 +46,9 @@ public class WebCrawler {
 
 		// Decide which command to execute
 		switch (command) {
+		case "help":
+			output = help();
+			break;
 		case "use":
 			output = use(arg);
 			break;
@@ -56,6 +59,16 @@ public class WebCrawler {
 		return output;
 	}
 
+	/**
+	 * @return nicely formatted text with information
+	 * on all available commands
+	 */
+	public String help() {
+		return "\n> help\n\tThis text.\n"
+				+ "> use [db]\n\tSwitches to database db."
+				+ "\n\tIf the database doesn't exist, a new one is created to switch to.\n";
+	}
+	
 	/**
 	 * Closes the connection. This WebCrawler Object is no longer
 	 * usable after calling this method.
@@ -93,21 +106,22 @@ public class WebCrawler {
 }
 
 /*
- * TODO: figure out what SQL commands I need to use to store the data I need for the webcrawler
- * TODO: read the JDBC basics tutorial to figure out how to properly use SQL commands in Java
+ * TODO:
+ *	- add start command
+ *		- create a list of like 100s of seed pages
+ *		- pick some pages and start the recursive web search thing
+ *		- pages must be stored in the database
+ *		- figure out what SQL commands I need to use to store the data I need for the webcrawler
+ *		- read the JDBC basics tutorial to figure out how to properly use SQL commands in Java
  */
 
 /*
-TODO: need a list of like 100s of seed pages
 TODO: what happens if all of the threads running can't find any more links?
 i.e. all of the links on the current pages have already been visited, so there is nowhere to go
 just print nothing else can be found I guess "Dead end reached..."
 
 commands:
 help - this text
-connect [db] - create a connection to database db (default is db)
-	- calls close before connecting
-close - closes the current connection
 start [threads] - this command will do nothing if open has not been called
 	- starts the webcrawler with the specified number of threads (default is 1)
 	- should be an option for how long it searches the web
