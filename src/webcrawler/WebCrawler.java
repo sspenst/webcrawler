@@ -9,7 +9,11 @@ import java.sql.Statement;
  * The WebCrawler class signifies a connection to the MariaDB app.
  */
 public class WebCrawler {
+	// Connection to the database
 	private final Connection connection;
+	// Reference to the WebCrawlerServer so that client
+	// accesses to the database can be properly synchronized 
+	private final WebCrawlerServer lock;
 
 	// TODO: rep invariant, abstraction function
 
@@ -17,9 +21,11 @@ public class WebCrawler {
 	 * Instantiate a WebCrawler object by creating a connection
 	 * to the MariaDB app.
 	 * 
+	 * @param lock reference to the server that instantiated this object
 	 * @throws SQLException unable to create a connetion
 	 */
-	public WebCrawler() throws SQLException {
+	public WebCrawler(WebCrawlerServer lock) throws SQLException {
+		this.lock = lock;
 		connection = DriverManager.getConnection("jdbc:mariadb://localhost:3306/?user=root");
 	}
 
@@ -60,16 +66,6 @@ public class WebCrawler {
 	}
 
 	/**
-	 * @return nicely formatted text with information
-	 * on all available commands
-	 */
-	public String help() {
-		return "\n> help\n\tThis text.\n"
-				+ "> use [db]\n\tSwitches to database db."
-				+ "\n\tIf the database doesn't exist, a new one is created to switch to.\n";
-	}
-	
-	/**
 	 * Closes the connection. This WebCrawler Object is no longer
 	 * usable after calling this method.
 	 */
@@ -80,6 +76,15 @@ public class WebCrawler {
 			// TODO: what happens if the connection isn't able to close successfully? does it matter?
 			e.printStackTrace();
 		}
+	}
+
+	/**
+	 * @return nicely formatted text with information
+	 * on all available commands
+	 */
+	private String help() {
+		return "\n> help\n\tThis text.\n> use [db]\n\tSwitches to database db."
+		        + "\n\tIf the database doesn't exist, a new one is created to switch to.\n";
 	}
 
 	/**
@@ -116,12 +121,21 @@ public class WebCrawler {
  */
 
 /*
+ * have a table that has a bunch of seed websites and whether or not they've been accessed
+ * create a command that initializes the table by deleting it if it already existed, then adding all the websites with "accessed" as false
+ * when you start the crawler with a specified number of seed pages, it will pick random pages to start with, then will start the threads
+ * ideally you should be able to execute other commands while the threads are going
+ * if another client starts the crawler while a crawler has already been started, that crawler will check to see if there are enough
+ * "not accessed" seed pages to start crawling from. if there are, then it starts threads also. each time any thread from any client needs
+ * to access the database, the access has to be synchronized. so they will add all accessed pages to the database, and all jobs. 
+ */
+
+/*
 TODO: what happens if all of the threads running can't find any more links?
 i.e. all of the links on the current pages have already been visited, so there is nowhere to go
 just print nothing else can be found I guess "Dead end reached..."
 
 commands:
-help - this text
 start [threads] - this command will do nothing if open has not been called
 	- starts the webcrawler with the specified number of threads (default is 1)
 	- should be an option for how long it searches the web

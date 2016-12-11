@@ -18,7 +18,6 @@ public class WebCrawlerServer {
 	/** Default port number where the server listens for connections. */
 	public static int PORT = 4949;
 	private ServerSocket serverSocket;
-	private WebCrawler webCrawler;
 
 	// Rep invariant:
 	//		serverSocket != null
@@ -50,6 +49,7 @@ public class WebCrawlerServer {
 	 *             if the main server socket is broken
 	 */
 	public void serve() throws IOException {
+		WebCrawlerServer lock = this;
 		while (true) {
 			// block until a client connects
 			final Socket socket = serverSocket.accept();
@@ -57,9 +57,10 @@ public class WebCrawlerServer {
 			Thread handler = new Thread(new Runnable() {
 				public void run() {
 					try {
+						WebCrawler webCrawler = null;
 						try {
-							webCrawler = new WebCrawler();
-							handle(socket);
+							webCrawler = new WebCrawler(lock);
+							handle(socket, webCrawler);
 						} catch (SQLException e) {
 							e.printStackTrace();
 						} finally {
@@ -87,7 +88,7 @@ public class WebCrawlerServer {
 	 * @throws IOException
 	 *             if connection encounters an error
 	 */
-	private void handle(Socket socket) throws IOException {
+	private void handle(Socket socket, WebCrawler webCrawler) throws IOException {
 		System.err.println("client connected");
 
 		// get the socket's input stream, and wrap converters around it
@@ -106,13 +107,7 @@ public class WebCrawlerServer {
 			for (String line = in.readLine(); line != null; line = in.readLine()) {
 				System.err.println("request: " + line);
 				try {
-					String output;
-					
-					// Make sure only one client is able to perform an
-					// operation on the database at a time.
-					synchronized (this) {
-						output = webCrawler.execute(line);
-					}
+					String output = webCrawler.execute(line);
 
 					// Output to server and client
 					System.err.println("reply:" + output);
