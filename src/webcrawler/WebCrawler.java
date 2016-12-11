@@ -5,43 +5,99 @@ import java.sql.DriverManager;
 import java.sql.SQLException;
 import java.sql.Statement;
 
+/**
+ * The WebCrawler class signifies a connection to the MariaDB app.
+ */
 public class WebCrawler {
-	public WebCrawler() {
-		// TODO: something
+	private final Connection connection;
+
+	// TODO: rep invariant, abstraction function
+
+	/**
+	 * Instantiate a WebCrawler object by creating a connection
+	 * to the MariaDB app.
+	 * 
+	 * @throws SQLException unable to create a connetion
+	 */
+	public WebCrawler() throws SQLException {
+		connection = DriverManager.getConnection("jdbc:mariadb://localhost:3306/?user=root");
 	}
-	
-	public String request(String request) {
-		return request;
+
+	/**
+	 * Executes a command related to web crawling and the MariaDB app.
+	 * Use the help command to see a description of all available commands.
+	 * The effect of using this method through multiple instantiations of
+	 * this object simultaneously is undefined. Synchronization must be
+	 * used to ensure no conflict between executed commands.
+	 * 
+	 * @param input the client's input
+	 * @return a message detailing the effect of the command
+	 * @throws IllegalArgumentException input doesn't correspond to any command
+	 */
+	public String execute(String input) throws IllegalArgumentException {
+		// Interpret the input string
+		String[] splitStr = input.split(" +", 2);
+		String command = splitStr[0].toLowerCase();
+		String arg = null;
+		if (splitStr.length > 1) arg = splitStr[1];
+
+		// Store the output of the command
+		String output = null;
+
+		// Decide which command to execute
+		switch (command) {
+		case "use":
+			output = use(arg);
+			break;
+		default:
+			throw new IllegalArgumentException();
+		}
+
+		return output;
 	}
-	
-	public static void main(String[] args) {
+
+	/**
+	 * Closes the connection. This WebCrawler Object is no longer
+	 * usable after calling this method.
+	 */
+	public void close() {
 		try {
-			// "test" is the database name
-			Connection connection = DriverManager.getConnection("jdbc:mariadb://localhost:3306/test");
-			Statement stmt = connection.createStatement();
-			stmt.executeUpdate("CREATE TABLE a (id int not null primary key, value varchar(20))");
-			stmt.close();
 			connection.close();
-			System.out.println("WE MADE IT");
+		} catch (SQLException e) {
+			// TODO: what happens if the connection isn't able to close successfully? does it matter?
+			e.printStackTrace();
+		}
+	}
+
+	/**
+	 * This method executes the SQL "use" command. If the
+	 * database specified doesn't exist, a new database is
+	 * created and used with the specified name. 
+	 * 
+	 * @param database the name of the database to use
+	 * @return a message detailing the effect of this method
+	 */
+	private String use(String database) {
+		if (database == null || database.equals("")) return "ERROR: database not specified";
+		try {
+			Statement stmt = connection.createStatement();
+			stmt.executeQuery("create database if not exists " + database);
+			stmt.executeQuery("use " + database);
+			stmt.close();
+			return "using database " + database;
 		} catch (SQLException e) {
 			e.printStackTrace();
+			return "ERROR: unable to use database " + database;
 		}
 	}
 }
 
 /*
  * TODO: figure out what SQL commands I need to use to store the data I need for the webcrawler
- * TODO: is the database threadsafe? i don't think so. make sure accesses to connection are synchronized
  * TODO: read the JDBC basics tutorial to figure out how to properly use SQL commands in Java
  */
 
 /*
-WEBCRAWLER IS A SERVER
-clients (or maybe just one client?) can connect to the webcrawler server and
-can start/stop/restart the server, and can run commands on the server? to get data?
-create a refresh command which can be executed by a user, as well as is automatically
-executed periodically by the crawler (every 10 seconds? minute?)
-
 TODO: need a list of like 100s of seed pages
 TODO: what happens if all of the threads running can't find any more links?
 i.e. all of the links on the current pages have already been visited, so there is nowhere to go
@@ -49,7 +105,7 @@ just print nothing else can be found I guess "Dead end reached..."
 
 commands:
 help - this text
-open [db] - create a connection to database db (default is db)
+connect [db] - create a connection to database db (default is db)
 	- calls close before connecting
 close - closes the current connection
 start [threads] - this command will do nothing if open has not been called

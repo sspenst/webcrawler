@@ -7,12 +7,12 @@ import java.io.OutputStreamWriter;
 import java.io.PrintWriter;
 import java.net.ServerSocket;
 import java.net.Socket;
+import java.sql.SQLException;
 
 /**
- * This class represents a server that interacts with a MariaDB
- * database. Multiple clients can connect to the server simultaneously
- * and are able to send requests in order to retrieve relevant
- * information from the database.
+ * This class represents a server that is connected to the MariaDB app.
+ * Multiple clients can connect to the server simultaneously and are able
+ * to send requests in order to retrieve relevant information from the database.
  */
 public class WebCrawlerServer {
 	/** Default port number where the server listens for connections. */
@@ -28,8 +28,9 @@ public class WebCrawlerServer {
 	//		A client can connect to the server to interact with the database.
 	// Thread safety argument:
 	//		webCrawler is the only data structure shared between threads.
-	//		webCrawler is threadsafe, therefore the accesses to it from
-	//		this class do not cause problems, which makes WebCrawlerServer threadsafe.
+	//		All webCrawler accesses are synchronized to this, therefore the
+	//		accesses to it from this class do not cause problems, which makes
+	//		WebCrawlerServer threadsafe.
 
 	/**
 	 * Make a RestaurantDBServer that listens for connections on port.
@@ -40,7 +41,6 @@ public class WebCrawlerServer {
 	 */
 	public WebCrawlerServer() throws IOException {
 		serverSocket = new ServerSocket(PORT);
-		webCrawler = new WebCrawler();
 	}
 
 	/**
@@ -58,9 +58,13 @@ public class WebCrawlerServer {
 				public void run() {
 					try {
 						try {
+							webCrawler = new WebCrawler();
 							handle(socket);
+						} catch (SQLException e) {
+							e.printStackTrace();
 						} finally {
 							socket.close();
+							webCrawler.close();
 						}
 					} catch (IOException ioe) {
 						// this exception wouldn't terminate serve(),
@@ -102,10 +106,16 @@ public class WebCrawlerServer {
 			for (String line = in.readLine(); line != null; line = in.readLine()) {
 				System.err.println("request: " + line);
 				try {
-					String output = webCrawler.request(line);
+					String output;
+					
+					// Make sure only one client is able to perform an
+					// operation on the database at a time.
+					synchronized (this) {
+						output = webCrawler.execute(line);
+					}
 
 					// Output to server and client
-					System.err.println(output);
+					System.err.println("reply:" + output);
 					out.println(output);
 				} catch (IllegalArgumentException e) {
 					// complain about ill-formatted request
