@@ -15,8 +15,9 @@ import java.sql.SQLException;
  * to send requests in order to retrieve relevant information from the database.
  */
 public class WebCrawlerServer {
+	// TODO: create a list of all clients that are connected, so that clients can tell if there are threads running
 	/** Default port number where the server listens for connections. */
-	public static int PORT = 4949;
+	private static final int PORT = 4949;
 	private ServerSocket serverSocket;
 
 	// Rep invariant:
@@ -59,6 +60,7 @@ public class WebCrawlerServer {
 					try {
 						WebCrawler webCrawler = null;
 						try {
+							// Initialize a WebCrawler with a default database
 							webCrawler = new WebCrawler(lock);
 							handle(socket, webCrawler);
 						} catch (SQLException e) {
@@ -110,7 +112,7 @@ public class WebCrawlerServer {
 					String output = webCrawler.execute(line);
 
 					// Output to server and client
-					System.err.println("reply:" + output);
+					System.err.println("reply: " + output);
 					out.println(output);
 				} catch (IllegalArgumentException e) {
 					// complain about ill-formatted request
@@ -135,7 +137,6 @@ public class WebCrawlerServer {
 	 * @param args the port that the server will run on
 	 */
 	public static void main(String[] args) {
-		if (args.length > 1) PORT = Integer.parseInt(args[1]);
 		try {
 			WebCrawlerServer server = new WebCrawlerServer();
 			server.serve();

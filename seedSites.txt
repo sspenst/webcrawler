@@ -1,0 +1,3 @@
+http://www.google.ca
+http://www.microsoft.com
+http://www.qualcomm.com

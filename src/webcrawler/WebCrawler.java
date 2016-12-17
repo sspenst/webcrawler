@@ -1,5 +1,9 @@
 package webcrawler;
 
+import java.io.BufferedReader;
+import java.io.FileNotFoundException;
+import java.io.FileReader;
+import java.io.IOException;
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.SQLException;
@@ -9,17 +13,22 @@ import java.sql.Statement;
  * The WebCrawler class signifies a connection to the MariaDB app.
  */
 public class WebCrawler {
+	private static final String DEFAULT_DATABASE = "webcrawler";
 	// Connection to the database
 	private final Connection connection;
 	// Reference to the WebCrawlerServer so that client
 	// accesses to the database can be properly synchronized 
 	private final WebCrawlerServer lock;
 
+	// TODO: create a database variable for the class, if necessary
+	// TODO: threads variables to store active threads (maybe a thread class?)
+
 	// TODO: rep invariant, abstraction function
 
 	/**
-	 * Instantiate a WebCrawler object by creating a connection
-	 * to the MariaDB app.
+	 * Instantiates a WebCrawler object by creating a connection
+	 * to the MariaDB app. Automatically starts by using the
+	 * database 'webcrawler', and initializing it with tables.
 	 * 
 	 * @param lock reference to the server that instantiated this object
 	 * @throws SQLException unable to create a connetion
@@ -27,6 +36,8 @@ public class WebCrawler {
 	public WebCrawler(WebCrawlerServer lock) throws SQLException {
 		this.lock = lock;
 		connection = DriverManager.getConnection("jdbc:mariadb://localhost:3306/?user=root");
+		this.use(DEFAULT_DATABASE);
+		this.init();
 	}
 
 	/**
@@ -52,8 +63,20 @@ public class WebCrawler {
 
 		// Decide which command to execute
 		switch (command) {
+		case "drop":
+			output = drop(arg);
+			break;
 		case "help":
 			output = help();
+			break;
+		case "init":
+			output = init();
+			break;
+		case "start":
+			output = start(arg);
+			break;
+		case "stop":
+			output = stop();
 			break;
 		case "use":
 			output = use(arg);
@@ -79,12 +102,107 @@ public class WebCrawler {
 	}
 
 	/**
+	 * This method executes the SQL "drop database" command.
+	 * Defaults to dropping the 'webcrawler' database if none
+	 * is specified. Only executes the command if no threads
+	 * are running.
+	 * 
+	 * @param database the name of the database to drop
+	 * @return a message detailing the effect of this method
+	 */
+	private String drop(String database) {
+		if (database == null || database.equals("")) database = DEFAULT_DATABASE;
+
+		try (Statement stmt = connection.createStatement()) {
+			// TODO: make sure no active threads are running before dropping
+			stmt.executeUpdate("drop database if exists " + database + ";");
+			return "dropped database " + database;
+		} catch (SQLException e) {
+			e.printStackTrace();
+			return "ERROR: unable to drop database " + database;
+		}
+	}
+
+	/**
 	 * @return nicely formatted text with information
 	 * on all available commands
 	 */
 	private String help() {
-		return "\n> help\n\tThis text.\n> use [db]\n\tSwitches to database db."
+		// TODO: update this when methods are updated
+		return "\n> drop [db]\n\tDrops the specified database." + "\n> help\n\tThis text."
+		        + "\n> init\n\tInitializes the 'seed' table." + "\n> use [db]\n\tSwitches to database db."
 		        + "\n\tIf the database doesn't exist, a new one is created to switch to.\n";
+	}
+
+	/**
+	 * Creates or replaces the table 'seed'. Each row contains a
+	 * site and a 'visited' bit. Populates the table with a
+	 * set of seed sites.
+	 * 
+	 * @return a message detailing the effect of this method
+	 */
+	private String init() {
+		try (Statement stmt = connection.createStatement()) {
+			// TODO: make sure no active threads are running before initializing
+			// Create or replace the table
+			stmt.executeUpdate("create or replace table seed(site VARCHAR(255), visited bit default 0);");
+
+			// Insert all seed sites into the table
+			try (BufferedReader br = new BufferedReader(new FileReader("seedSites.txt"))) {
+				String line;
+				while ((line = br.readLine()) != null) {
+					stmt.executeUpdate("insert into seed values('" + line + "', 0);");
+				}
+			} catch (FileNotFoundException e) {
+				e.printStackTrace();
+			} catch (IOException e) {
+				e.printStackTrace();
+			}
+
+			// TODO: add two more tables for links seen and jobs?
+			return "initialized a new seed table";
+		} catch (SQLException e) {
+			e.printStackTrace();
+			return "ERROR: unable to initialize new seed table";
+		}
+	}
+
+	/**
+	 * TODO: this
+	 * 
+	 * @param arg
+	 * @return
+	 */
+	private String start(String arg) {
+		// TODO: check if you are using a database
+		// TODO: check if table of sites exists
+
+		int threads;
+		if (arg == null) {
+			threads = 1;
+		} else {
+			try {
+				threads = Integer.valueOf(arg);
+			} catch (NumberFormatException e) {
+				return "ERROR: please input a valid number of threads";
+			}
+		}
+
+		// TODO:
+		// look through the table to get a list of unvisited links
+		// pick threads links from the list (if there aren't enough links, don't start the crawler)
+		// start the threads
+
+		return arg;
+	}
+
+	/**
+	 * TODO
+	 * @return
+	 */
+	private String stop() {
+		// TODO: safely stop all threads
+		return null;
 	}
 
 	/**
@@ -96,12 +214,12 @@ public class WebCrawler {
 	 * @return a message detailing the effect of this method
 	 */
 	private String use(String database) {
-		if (database == null || database.equals("")) return "ERROR: database not specified";
-		try {
-			Statement stmt = connection.createStatement();
+		if (database == null || database.equals("")) database = DEFAULT_DATABASE;
+
+		try (Statement stmt = connection.createStatement()) {
+			// TODO: make sure no active threads are running
 			stmt.executeQuery("create database if not exists " + database);
 			stmt.executeQuery("use " + database);
-			stmt.close();
 			return "using database " + database;
 		} catch (SQLException e) {
 			e.printStackTrace();
@@ -116,13 +234,10 @@ public class WebCrawler {
  *		- create a list of like 100s of seed pages
  *		- pick some pages and start the recursive web search thing
  *		- pages must be stored in the database
- *		- figure out what SQL commands I need to use to store the data I need for the webcrawler
- *		- read the JDBC basics tutorial to figure out how to properly use SQL commands in Java
+ *		- create a method to check if threads are running (in WebCrawlerServer)
  */
 
 /*
- * have a table that has a bunch of seed websites and whether or not they've been accessed
- * create a command that initializes the table by deleting it if it already existed, then adding all the websites with "accessed" as false
  * when you start the crawler with a specified number of seed pages, it will pick random pages to start with, then will start the threads
  * ideally you should be able to execute other commands while the threads are going
  * if another client starts the crawler while a crawler has already been started, that crawler will check to see if there are enough
