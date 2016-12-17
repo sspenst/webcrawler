@@ -18,6 +18,7 @@ To start this program, the user should run the WebCrawlerServer. This server is 
 * Commence the webcrawling with `start`
 * Run `stop` after some time to stop the webcrawling
 * Run some other commands to view results...
+
 ###Advanced Usage
 * Run `use [db]` to use a different database
 * Initialize the database with tables using `init`

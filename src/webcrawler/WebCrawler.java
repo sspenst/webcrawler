@@ -5,7 +5,6 @@ import java.io.FileNotFoundException;
 import java.io.FileReader;
 import java.io.IOException;
 import java.sql.Connection;
-import java.sql.DriverManager;
 import java.sql.SQLException;
 import java.sql.Statement;
 
@@ -26,16 +25,17 @@ public class WebCrawler {
 	// TODO: rep invariant, abstraction function
 
 	/**
-	 * Instantiates a WebCrawler object by creating a connection
+	 * Instantiates a WebCrawler object from a given connection
 	 * to the MariaDB app. Automatically starts by using the
-	 * database 'webcrawler', and initializing it with tables.
+	 * database 'webcrawler', and by initializing its tables.
 	 * 
 	 * @param lock reference to the server that instantiated this object
+	 * @param connection an established connection to the MariaDB app
 	 * @throws SQLException unable to create a connetion
 	 */
-	public WebCrawler(WebCrawlerServer lock) throws SQLException {
+	public WebCrawler(WebCrawlerServer lock, Connection connection) throws SQLException {
 		this.lock = lock;
-		connection = DriverManager.getConnection("jdbc:mariadb://localhost:3306/?user=root");
+		this.connection = connection;
 		this.use(DEFAULT_DATABASE);
 		this.init();
 	}
@@ -89,19 +89,6 @@ public class WebCrawler {
 	}
 
 	/**
-	 * Closes the connection. This WebCrawler Object is no longer
-	 * usable after calling this method.
-	 */
-	public void close() {
-		try {
-			connection.close();
-		} catch (SQLException e) {
-			// TODO: what happens if the connection isn't able to close successfully? does it matter?
-			e.printStackTrace();
-		}
-	}
-
-	/**
 	 * This method executes the SQL "drop database" command.
 	 * Defaults to dropping the 'webcrawler' database if none
 	 * is specified. Only executes the command if no threads
@@ -115,7 +102,9 @@ public class WebCrawler {
 
 		try (Statement stmt = connection.createStatement()) {
 			// TODO: make sure no active threads are running before dropping
-			stmt.executeUpdate("drop database if exists " + database + ";");
+			synchronized (lock) {
+				stmt.executeUpdate("drop database if exists " + database + ";");
+			}
 			return "dropped database " + database;
 		} catch (SQLException e) {
 			e.printStackTrace();
@@ -143,20 +132,22 @@ public class WebCrawler {
 	 */
 	private String init() {
 		try (Statement stmt = connection.createStatement()) {
-			// TODO: make sure no active threads are running before initializing
-			// Create or replace the table
-			stmt.executeUpdate("create or replace table seed(site VARCHAR(255), visited bit default 0);");
+			synchronized (lock) {
+				// TODO: make sure no active threads are running before initializing
+				// Create or replace the table
+				stmt.executeUpdate("create or replace table seed(site VARCHAR(255), visited bit default 0);");
 
-			// Insert all seed sites into the table
-			try (BufferedReader br = new BufferedReader(new FileReader("seedSites.txt"))) {
-				String line;
-				while ((line = br.readLine()) != null) {
-					stmt.executeUpdate("insert into seed values('" + line + "', 0);");
+				// Insert all seed sites into the table
+				try (BufferedReader br = new BufferedReader(new FileReader("seedSites.txt"))) {
+					String line;
+					while ((line = br.readLine()) != null) {
+						stmt.executeUpdate("insert into seed values('" + line + "', 0);");
+					}
+				} catch (FileNotFoundException e) {
+					e.printStackTrace();
+				} catch (IOException e) {
+					e.printStackTrace();
 				}
-			} catch (FileNotFoundException e) {
-				e.printStackTrace();
-			} catch (IOException e) {
-				e.printStackTrace();
 			}
 
 			// TODO: add two more tables for links seen and jobs?
@@ -218,7 +209,9 @@ public class WebCrawler {
 
 		try (Statement stmt = connection.createStatement()) {
 			// TODO: make sure no active threads are running
-			stmt.executeQuery("create database if not exists " + database);
+			synchronized (lock) {
+				stmt.executeQuery("create database if not exists " + database);
+			}
 			stmt.executeQuery("use " + database);
 			return "using database " + database;
 		} catch (SQLException e) {

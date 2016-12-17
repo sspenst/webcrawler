@@ -7,6 +7,8 @@ import java.io.OutputStreamWriter;
 import java.io.PrintWriter;
 import java.net.ServerSocket;
 import java.net.Socket;
+import java.sql.Connection;
+import java.sql.DriverManager;
 import java.sql.SQLException;
 
 /**
@@ -16,6 +18,7 @@ import java.sql.SQLException;
  */
 public class WebCrawlerServer {
 	// TODO: create a list of all clients that are connected, so that clients can tell if there are threads running
+	// the method that does this should be based on the database (i.e. it returns true if there are threads running on a specific database)
 	/** Default port number where the server listens for connections. */
 	private static final int PORT = 4949;
 	private ServerSocket serverSocket;
@@ -58,16 +61,14 @@ public class WebCrawlerServer {
 			Thread handler = new Thread(new Runnable() {
 				public void run() {
 					try {
-						WebCrawler webCrawler = null;
-						try {
-							// Initialize a WebCrawler with a default database
-							webCrawler = new WebCrawler(lock);
+						try (Connection connection = DriverManager
+						        .getConnection("jdbc:mariadb://localhost:3306/?user=root")) {
+							WebCrawler webCrawler = new WebCrawler(lock, connection);
 							handle(socket, webCrawler);
 						} catch (SQLException e) {
 							e.printStackTrace();
 						} finally {
 							socket.close();
-							webCrawler.close();
 						}
 					} catch (IOException ioe) {
 						// this exception wouldn't terminate serve(),
