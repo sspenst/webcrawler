@@ -10,6 +10,8 @@ import java.net.Socket;
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.SQLException;
+import java.util.ArrayList;
+import java.util.List;
 
 /**
  * This class represents a server that is connected to the MariaDB app.
@@ -17,23 +19,24 @@ import java.sql.SQLException;
  * to send requests in order to retrieve relevant information from the database.
  */
 public class WebCrawlerServer {
-	// TODO: create a list of all clients that are connected, so that clients can tell if there are threads running
-	// the method that does this should be based on the database (i.e. it returns true if there are threads running on a specific database)
+	// List of all clients currently connected to the database
+	private List<WebCrawler> clients;
+
 	/** Default port number where the server listens for connections. */
 	private static final int PORT = 4949;
 	private ServerSocket serverSocket;
 
 	// Rep invariant:
+	//		clients != null
 	//		serverSocket != null
-	//		webCrawler != null
 	// Abstraction function:
 	//		Represents a server that interacts with a local MariaDB database.
 	//		A client can connect to the server to interact with the database.
 	// Thread safety argument:
-	//		webCrawler is the only data structure shared between threads.
-	//		All webCrawler accesses are synchronized to this, therefore the
-	//		accesses to it from this class do not cause problems, which makes
-	//		WebCrawlerServer threadsafe.
+	//		The database is the main structure that is shared between threads.
+	//		All client accesses are synchronized to this, therefore the
+	//		accesses to the database from this class do not cause problems,
+	//		which makes WebCrawlerServer threadsafe.
 
 	/**
 	 * Make a RestaurantDBServer that listens for connections on port.
@@ -44,6 +47,7 @@ public class WebCrawlerServer {
 	 */
 	public WebCrawlerServer() throws IOException {
 		serverSocket = new ServerSocket(PORT);
+		clients = new ArrayList<WebCrawler>();
 	}
 
 	/**
@@ -53,7 +57,7 @@ public class WebCrawlerServer {
 	 *             if the main server socket is broken
 	 */
 	public void serve() throws IOException {
-		WebCrawlerServer lock = this;
+		WebCrawlerServer databaseLock = this;
 		while (true) {
 			// block until a client connects
 			final Socket socket = serverSocket.accept();
@@ -61,14 +65,21 @@ public class WebCrawlerServer {
 			Thread handler = new Thread(new Runnable() {
 				public void run() {
 					try {
+						WebCrawler webCrawler = null;
 						try (Connection connection = DriverManager
 						        .getConnection("jdbc:mariadb://localhost:3306/?user=root")) {
-							WebCrawler webCrawler = new WebCrawler(lock, connection);
+							webCrawler = new WebCrawler(databaseLock, connection);
+							synchronized (clients) {
+								clients.add(webCrawler);
+							}
 							handle(socket, webCrawler);
 						} catch (SQLException e) {
 							e.printStackTrace();
 						} finally {
 							socket.close();
+							synchronized (clients) {
+								clients.remove(webCrawler);
+							}
 						}
 					} catch (IOException ioe) {
 						// this exception wouldn't terminate serve(),
@@ -117,8 +128,9 @@ public class WebCrawlerServer {
 					out.println(output);
 				} catch (IllegalArgumentException e) {
 					// complain about ill-formatted request
-					System.err.println("reply: err");
-					out.println("err");
+					String response = "ERROR: unsupported command";
+					System.err.println("reply: " + response);
+					out.println(response);
 				}
 				// important! our PrintWriter is auto-flushing, but if it were
 				// not:
@@ -128,6 +140,21 @@ public class WebCrawlerServer {
 			System.err.println("client disconnected");
 			out.close();
 			in.close();
+		}
+	}
+
+	/**
+	 * Stop all threads that are running on a given database.
+	 * 
+	 * @param database the database to halt
+	 */
+	public void stopDatabase(String database) {
+		synchronized (clients) {
+			for (WebCrawler client : clients) {
+				if (client.getCurrentDatabase().equals(database)) {
+					client.stop();
+				}
+			}
 		}
 	}
 
