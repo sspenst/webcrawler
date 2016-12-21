@@ -5,6 +5,7 @@ import java.io.FileNotFoundException;
 import java.io.FileReader;
 import java.io.IOException;
 import java.sql.Connection;
+import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
 import java.util.ArrayList;
@@ -12,10 +13,16 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
+import org.jsoup.Jsoup;
+import org.jsoup.nodes.Document;
+import org.jsoup.nodes.Element;
+import org.jsoup.select.Elements;
+
 /**
  * The WebCrawler class signifies a connection to the MariaDB app.
  */
 public class WebCrawler {
+	private static final int MAX_SITE_LENGTH = 1023;
 	private static final String DEFAULT_DATABASE = "webcrawler";
 	private String currentDatabase;
 	// Connection to the database
@@ -24,11 +31,15 @@ public class WebCrawler {
 	// accesses to the database can be properly synchronized 
 	private final WebCrawlerServer databaseLock;
 	// A map from URLs to threads that are currently running
-	private Map<String, Thread> threads;
+	// TODO: limit the size of threads so that it doesn't take forever to pause/stop?
+	private final Map<String, Thread> threads;
+	// TODO: make this a lock?
+	private boolean createThreads;
 
 	// Rep invariant:
-	//		databaseLock is the server that created this WebCrawler
+	//		currentDatabase != null
 	//		connection != null
+	//		databaseLock is the server that created this WebCrawler
 	//		threads != null
 	// Abstraction function:
 	//		Represents a client that interacts with a MariaDB database.
@@ -40,14 +51,14 @@ public class WebCrawler {
 	 * 
 	 * @param lock reference to the server that instantiated this object
 	 * @param connection an established connection to the MariaDB app
-	 * @throws SQLException unable to create a connetion
+	 * @throws SQLException unable to create a connection
 	 */
 	public WebCrawler(WebCrawlerServer databaseLock, Connection connection) throws SQLException {
 		this.databaseLock = databaseLock;
 		this.connection = connection;
 		this.threads = new HashMap<String, Thread>();
+		this.createThreads = true;
 		this.use(DEFAULT_DATABASE);
-		this.init();
 	}
 
 	/**
@@ -104,6 +115,9 @@ public class WebCrawler {
 		case "stop":
 			output = stop();
 			break;
+		case "threads":
+			output = threads();
+			break;
 		case "use":
 			output = use(arg);
 			break;
@@ -118,7 +132,7 @@ public class WebCrawler {
 	 * This method executes the SQL "drop database" command.
 	 * Defaults to dropping the DEFAULUT_DATABASE if none
 	 * is specified. Only executes the command if no threads
-	) * are running.
+	 * are running.
 	 * 
 	 * @param database the name of the database to drop
 	 * @return a message detailing the effect of this method
@@ -146,22 +160,22 @@ public class WebCrawler {
 	 */
 	private String help() {
 		// TODO: update this when methods are updated
-		return "\n> drop [db]\n\tDrops the specified database.\n\tIf none is specified, drops the '" + DEFAULT_DATABASE
-		        + "' database." + "\n> help\n\tThis text." + "\n> init\n\tInitializes the 'seed' table."
+		return "\n> drop [db]\n\tDrops the specified database.\n\tIf none is specified, drops the '" + DEFAULT_DATABASE + "' database."
+		        + "\n> help\n\tThis text." + "\n> init\n\tInitializes the 'seeds', 'sites', 'jobs', and 'state' tables."
 		        + "\n> pause\n\tSame as the stop command, but the state of the crawler is saved."
 		        + "\n> resume\n\tResumes the state saved by the pause command."
 		        + "\n> sanitize\n\tRefreshes the database by removing any job postings that no longer exist."
 		        + "\n> start [threads]\n\tStarts the web crawler with the given number of threads."
 		        + "\n\tIf no thread number is specified, the crawler is started with one thread."
-		        + "\n> stop\n\tStops all threads started by this client."
+		        + "\n> stop\n\tStops all threads started by this client." + "\n> threads\n\tPrints the number of threads currently running."
 		        + "\n> use [db]\n\tSwitches to database db.\n\tIf none is specified, uses the '" + DEFAULT_DATABASE
-		        + "' database." + "\n\tIf the database doesn't exist, a new one is created to switch to.\n";
+		        + "' database.\n\tIf the database doesn't exist, a new one is created to switch to.\n";
 	}
 
 	/**
-	 * Creates or replaces the table 'seed'. Each row contains a
-	 * site and a 'visited' bit. Populates the table with a
-	 * set of seed sites.
+	 * Creates or replaces the 'seeds', 'sites', 'jobs',
+	 * and 'state' tables. Populates the 'seeds' table with a
+	 * set of seed sites, the rest are empty.
 	 * 
 	 * @return a message detailing the effect of this method
 	 */
@@ -171,14 +185,19 @@ public class WebCrawler {
 
 		try (Statement stmt = connection.createStatement()) {
 			synchronized (databaseLock) {
-				// Create or replace the table
-				stmt.executeUpdate("create or replace table seed(site VARCHAR(255), visited bit default 0);");
+				// Create or replace the tables
+				stmt.executeUpdate(
+				        "create or replace table seeds(site VARCHAR(" + Integer.toString(MAX_SITE_LENGTH) + "), visited bit default 0);");
+				stmt.executeUpdate("create or replace table sites(site VARCHAR(" + Integer.toString(MAX_SITE_LENGTH) + "));");
+				// TODO once the format of jobs is figured out
+				//stmt.executeUpdate("create or replace table jobs();");
+				stmt.executeUpdate("create or replace table state(site VARCHAR(" + Integer.toString(MAX_SITE_LENGTH) + "));");
 
-				// Insert all seed sites into the table
+				// Insert all seed sites into the 'seeds' table
 				try (BufferedReader br = new BufferedReader(new FileReader("seedSites.txt"))) {
 					String line;
 					while ((line = br.readLine()) != null) {
-						stmt.executeUpdate("insert into seed values('" + line + "', 0);");
+						stmt.executeUpdate("insert into seeds values('" + line + "', 0);");
 					}
 				} catch (FileNotFoundException e) {
 					e.printStackTrace();
@@ -186,13 +205,10 @@ public class WebCrawler {
 					e.printStackTrace();
 				}
 			}
-
-			// TODO: add two more tables for links seen and jobs?
-			// TODO: add a fourth table to store the current thread state?
-			return "initialized a new seed table";
+			return "initialized new tables";
 		} catch (SQLException e) {
 			e.printStackTrace();
-			return "ERROR: unable to initialize new seed table";
+			return "ERROR: unable to initialize new tables";
 		}
 	}
 
@@ -204,10 +220,51 @@ public class WebCrawler {
 	 * @return a message detailing the effect of this method
 	 */
 	private String pause() {
-		// TODO: store all currently running threads (URLs) in a special table in the database
-		// if no threads were running, say ERROR no threads running
-		// call stop()
-		return "all previously running threads are now paused";
+		// Make sure all threads terminate by not creating new threads
+		createThreads = false;
+
+		// Wait for all threads to stop producing new threads
+		try {
+			Thread.sleep(200);
+		} catch (InterruptedException e) {
+			e.printStackTrace();
+		}
+
+		synchronized (threads) {
+			if (threads.size() == 0) {
+				createThreads = true;
+				return "ERROR: no threads to pause";
+			}
+
+			// Save the state into the database
+			synchronized (databaseLock) {
+				try (Statement stmt = connection.createStatement()) {
+					for (String site : threads.keySet()) {
+						if (site.length() <= MAX_SITE_LENGTH) {
+							stmt.executeUpdate("insert into state values ('" + site + "');");
+						}
+					}
+				} catch (SQLException e) {
+					e.printStackTrace();
+					return "ERROR: unable to save state to database";
+				}
+			}
+
+			// Wait for all threads to terminate
+			for (Thread thread : threads.values()) {
+				try {
+					thread.join();
+				} catch (InterruptedException e) {
+					e.printStackTrace();
+				}
+			}
+			threads.clear();
+		}
+
+		// Threads are allowed to be created again
+		createThreads = true;
+
+		return "paused all threads";
 	}
 
 	/**
@@ -218,10 +275,29 @@ public class WebCrawler {
 	 * @return a message detailing the effect of this method
 	 */
 	private String resume() {
-		// TODO: collect all URLs that exist in the pause table of the database into a list
-		// if the list is empty, say ERROR no threads were started
-		// call spawnThreads(theListThatWasJustMade)
-		return "all previously paused threads are now running";
+		List<String> statePages = new ArrayList<String>();
+
+		// Add all saved sites to statePages, then clear the 'state' table
+		synchronized (databaseLock) {
+			try (Statement stmt = connection.createStatement()) {
+				ResultSet state = stmt.executeQuery("select * from state;");
+
+				while (state.next()) {
+					statePages.add(state.getString("site"));
+				}
+
+				stmt.executeUpdate("create or replace table state(site VARCHAR(255));");
+			} catch (SQLException e) {
+				e.printStackTrace();
+				return "ERROR: unable to retrieve saved state";
+			}
+		}
+
+		spawnThreads(statePages);
+
+		if (statePages.size() == 0) return "ERROR: no state was saved";
+		else if (statePages.size() == 1) return "resumed 1 thread";
+		else return "resumed " + statePages.size() + " threads";
 	}
 
 	/**
@@ -237,38 +313,53 @@ public class WebCrawler {
 
 	/**
 	 * Starts the web crawling from a given number of seed pages.
+	 * Defaults to starting with one thread if the input is null.
 	 * 
 	 * @param num number of threads to start the web crawling with
 	 * @return a message detailing the effect of this method
 	 */
 	private String start(String num) {
+		// Get the number of threads from the input String
 		int threadCount;
 		if (num == null) {
 			threadCount = 1;
 		} else {
 			try {
 				threadCount = Integer.valueOf(num);
+				if (threadCount < 1) throw new IllegalArgumentException();
 			} catch (NumberFormatException e) {
-				return "ERROR: please input a valid number of threads";
+				return "ERROR: please input a number";
+			} catch (IllegalArgumentException e) {
+				return "ERROR: please input a number of threads greater than 0";
 			}
 		}
 
+		// Find seeds to add to the seedPages list
 		List<String> seedPages = new ArrayList<String>();
+		synchronized (databaseLock) {
+			try (Statement stmt = connection.createStatement()) {
+				ResultSet availableSeeds = stmt.executeQuery("select * from seeds where visited = 0;");
 
-		for (int i = 0; i < threadCount; i++) {
-			// TODO: getRandomSeed();
-			// String seed = getRandomSeed();
-			// if (seed == null) break;
-			// else seedPages.add(seed);
-		}
-
-		if (seedPages.size() == 0) {
-			return "ERROR: no more seeds to start threads from";
+				// While there are still seeds available and more seeds are still wanted, get a seed,
+				// set it to visited in the database, and add it to the seedPages list. Also add the
+				// seed to the 'sites' table in the database so that it is not revisited later.
+				while (availableSeeds.next() && seedPages.size() < threadCount) {
+					String site = availableSeeds.getString("site");
+					stmt.executeUpdate("update seeds set visited = 1 where site = '" + site + "';");
+					seedPages.add(site);
+					stmt.executeUpdate("insert into sites values ('" + site + "');");
+				}
+			} catch (SQLException e) {
+				e.printStackTrace();
+				return "ERROR: unable to start threads";
+			}
 		}
 
 		spawnThreads(seedPages);
 
-		return "started " + Integer.toString(seedPages.size()) + " threads";
+		if (seedPages.size() == 0) return "ERROR: no more seeds to start threads from";
+		else if (seedPages.size() == 1) return "started 1 thread";
+		else return "started " + Integer.toString(seedPages.size()) + " threads";
 	}
 
 	/**
@@ -279,14 +370,53 @@ public class WebCrawler {
 	 * @return a message detailing the effect of this method
 	 */
 	public String stop() {
-		synchronized (threads) {
-			while (threads.size() > 0) {
-				Thread removedThread = threads.remove(0);
-				removedThread.interrupt();
-			}
+		// Make sure all threads terminate by not creating new threads
+		createThreads = false;
+
+		// Wait for all threads to stop producing new threads
+		try {
+			Thread.sleep(200);
+		} catch (InterruptedException e) {
+			e.printStackTrace();
 		}
 
+		// Wait for all threads to terminate
+		synchronized (threads) {
+			if (threads.size() == 0) {
+				createThreads = true;
+				return "ERROR: no threads to stop";
+			}
+
+			for (Thread thread : threads.values()) {
+				try {
+					thread.join();
+				} catch (InterruptedException e) {
+					e.printStackTrace();
+				}
+			}
+			threads.clear();
+		}
+
+		// Threads are allowed to be created again
+		createThreads = true;
+
 		return "stopped all threads";
+	}
+
+	/**
+	 * @return a message containing the number of
+	 * threads currently running
+	 */
+	private String threads() {
+		int runningThreads = 0;
+		synchronized (threads) {
+			// Only count threads that are alive
+			for (Thread thread : threads.values()) {
+				if (thread.isAlive()) runningThreads++;
+			}
+		}
+		if (runningThreads == 1) return "1 thread currently running";
+		else return Integer.toString(runningThreads) + " threads currently running";
 	}
 
 	/**
@@ -317,33 +447,81 @@ public class WebCrawler {
 	}
 
 	/**
-	 * TODO
-	 * @param sites
+	 * Given a list of URLs, create one thread per URL
+	 * where each thread finds new URLs on the page and
+	 * finds any existing job postings.
+	 * 
+	 * @param sites list of URLs
 	 */
 	private void spawnThreads(List<String> sites) {
 		for (String site : sites) {
-			// if database contains this site already, "continue;" to next site
-			// add site to the database
+			if (!createThreads) return;
 
 			Thread tempThread = new Thread(new Runnable() {
 				public void run() {
-					// get HTML text from site
-					// if it contains a job posting, store it in the database
-					// List<String> newSites = find all urls
-					// spawnThreads(newSites);
+					if (createThreads) {
+						// Get all URLs that appear on the specified site
+						Elements links = null;
+						try {
+							Document doc = Jsoup.connect(site).get();
+							links = doc.select("a[href]");
+						} catch (IOException e) {
+							if (createThreads) {
+								synchronized (threads) {
+									threads.remove(site);
+								}
+							}
+							return;
+						} catch (IllegalArgumentException e) {
+							if (createThreads) {
+								synchronized (threads) {
+									threads.remove(site);
+								}
+							}
+							return;
+						}
 
-					// This thread has now completed
-					synchronized (threads) {
-						threads.remove(site);
-						if (threads.size() == 0) {
-							// TODO: print "Dead end reached..." ?
+						// Add all sites that have not been visited before to newSites,
+						// as well as to the 'sites' table in the database
+						List<String> newSites = new ArrayList<String>();
+						if (links != null) {
+							synchronized (databaseLock) {
+								try (Statement stmt = connection.createStatement()) {
+									for (Element link : links) {
+										String newSite = link.attr("abs:href");
+										// Replace any apostrophes to avoid SQL syntax errors
+										newSite = newSite.replaceAll("'", "''");
+										ResultSet siteFromDB = stmt.executeQuery("select * from sites where site = '" + newSite + "';");
+										// If siteFromDB is empty, then newSite doesn't yet exist in the database
+										if (!siteFromDB.next() && newSite.length() <= MAX_SITE_LENGTH) {
+											newSites.add(newSite);
+											stmt.executeUpdate("insert into sites values ('" + newSite + "');");
+										}
+									}
+								} catch (SQLException e) {
+									e.printStackTrace();
+								}
+							}
+						}
+
+						// TODO: find job postings
+
+						spawnThreads(newSites);
+
+						// This thread has now completed
+						if (createThreads) {
+							synchronized (threads) {
+								threads.remove(site);
+							}
 						}
 					}
 				}
 			});
 
-			synchronized (threads) {
-				threads.put(site, tempThread);
+			if (createThreads) {
+				synchronized (threads) {
+					threads.put(site, tempThread);
+				}
 			}
 
 			tempThread.start();
@@ -351,10 +529,13 @@ public class WebCrawler {
 	}
 }
 
-// TODO: create a list of like 100s of seed pages
+// TODO: add more seed pages (including a local file that has no links so that sanitizing can be tested)
 // TODO: figure out a way to sanitize the database on a set interval
+// TODO: should starting seeds be random or in order?
+
+//TODO: find a better way of stopping all threads instead of waiting for 200ms?
+// also is it possible to do anything cleaner than the createThreads stopping method?
 
 // TODO commands:
 // view - prints all stored job postings
 //		- should be options to print a subset of jobs, or to print thread websites...
-

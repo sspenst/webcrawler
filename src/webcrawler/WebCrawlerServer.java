@@ -22,7 +22,7 @@ public class WebCrawlerServer {
 	// List of all clients currently connected to the database
 	private List<WebCrawler> clients;
 
-	/** Default port number where the server listens for connections. */
+	// Default port number where the server listens for connections.
 	private static final int PORT = 4949;
 	private ServerSocket serverSocket;
 
@@ -132,8 +132,7 @@ public class WebCrawlerServer {
 					System.err.println("reply: " + response);
 					out.println(response);
 				}
-				// important! our PrintWriter is auto-flushing, but if it were
-				// not:
+				// important! our PrintWriter is auto-flushing, but if it were not:
 				// out.flush();
 			}
 		} finally {
