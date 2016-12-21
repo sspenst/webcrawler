@@ -1,8 +1,8 @@
-Job Opening Web Crawler
+Web Crawler
 ===
 
 ##Description
-The Job Opening Web Crawler is a crawler that searches the World Wide Web for job openings. It starts from a certain number of seed pages, collects any job openings that appear on these pages, then searches all of the links reachable from the seed pages. This process continues until the user tells the crawler to stop. The collected data is stored using MariaDB.
+The Web Crawler is a crawler that searches the World Wide Web. It starts from a certain number of seed pages, then searches all of the links reachable from the seed pages. This process continues until the user tells the crawler to stop. The collected data is stored using MariaDB.
 
 ##Dependencies
 * MariaDB (easy to install with XAMPP)
