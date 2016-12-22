@@ -31,9 +31,7 @@ public class WebCrawler {
 	// accesses to the database can be properly synchronized 
 	private final WebCrawlerServer databaseLock;
 	// A map from URLs to threads that are currently running
-	// TODO: limit the size of threads so that it doesn't take forever to pause/stop?
 	private final Map<String, Thread> threads;
-	// TODO: make this a lock?
 	private boolean createThreads;
 
 	// Rep invariant:
@@ -106,9 +104,6 @@ public class WebCrawler {
 		case "resume":
 			output = resume();
 			break;
-		case "sanitize":
-			output = sanitize();
-			break;
 		case "start":
 			output = start(arg);
 			break;
@@ -159,12 +154,10 @@ public class WebCrawler {
 	 * on all available commands
 	 */
 	private String help() {
-		// TODO: update this when methods are updated
 		return "\n> drop [db]\n\tDrops the specified database.\n\tIf none is specified, drops the '" + DEFAULT_DATABASE + "' database."
 		        + "\n> help\n\tThis text." + "\n> init\n\tInitializes the 'seeds', 'sites', 'jobs', and 'state' tables."
 		        + "\n> pause\n\tSame as the stop command, but the state of the crawler is saved."
 		        + "\n> resume\n\tResumes the state saved by the pause command."
-		        + "\n> sanitize\n\tRefreshes the database by removing any job postings that no longer exist."
 		        + "\n> start [threads]\n\tStarts the web crawler with the given number of threads."
 		        + "\n\tIf no thread number is specified, the crawler is started with one thread."
 		        + "\n> stop\n\tStops all threads started by this client." + "\n> threads\n\tPrints the number of threads currently running."
@@ -189,8 +182,6 @@ public class WebCrawler {
 				stmt.executeUpdate(
 				        "create or replace table seeds(site VARCHAR(" + Integer.toString(MAX_SITE_LENGTH) + "), visited bit default 0);");
 				stmt.executeUpdate("create or replace table sites(site VARCHAR(" + Integer.toString(MAX_SITE_LENGTH) + "));");
-				// TODO once the format of jobs is figured out
-				//stmt.executeUpdate("create or replace table jobs();");
 				stmt.executeUpdate("create or replace table state(site VARCHAR(" + Integer.toString(MAX_SITE_LENGTH) + "));");
 
 				// Insert all seed sites into the 'seeds' table
@@ -298,17 +289,6 @@ public class WebCrawler {
 		if (statePages.size() == 0) return "ERROR: no state was saved";
 		else if (statePages.size() == 1) return "resumed 1 thread";
 		else return "resumed " + statePages.size() + " threads";
-	}
-
-	/**
-	 * Refreshes the database so that all job postings that no
-	 * longer exist online are removed.
-	 * 
-	 * @return a message detailing the effect of this method
-	 */
-	private String sanitize() {
-		// TODO: go through each job posting's url and check if there is still a job posting
-		return "database has been sanitized";
 	}
 
 	/**
@@ -504,7 +484,7 @@ public class WebCrawler {
 							}
 						}
 
-						// TODO: find job postings
+						// TODO: Here is where you can collect any data you want from the site
 
 						spawnThreads(newSites);
 
@@ -528,14 +508,3 @@ public class WebCrawler {
 		}
 	}
 }
-
-// TODO: add more seed pages (including a local file that has no links so that sanitizing can be tested)
-// TODO: figure out a way to sanitize the database on a set interval
-// TODO: should starting seeds be random or in order?
-
-//TODO: find a better way of stopping all threads instead of waiting for 200ms?
-// also is it possible to do anything cleaner than the createThreads stopping method?
-
-// TODO commands:
-// view - prints all stored job postings
-//		- should be options to print a subset of jobs, or to print thread websites...
